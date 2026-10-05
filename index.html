@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta name="googlebot" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Mesas</title>
+<style>
+:root{--bg:#F4F6F3;--ink:#1D2622;--muted:#5E6B65;--accent:#2F5D50}
+@media (prefers-color-scheme:dark){:root{--bg:#111513;--ink:#E7ECE9;--muted:#9AA7A0;--accent:#86CBB6}}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  display:flex;align-items:center;justify-content:center;padding:24px}
+.box{max-width:340px;text-align:center}
+h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:22px;margin:0 0 8px}
+p{color:var(--muted);font-size:14px;line-height:1.5;margin:0}
+.spin{width:28px;height:28px;margin:0 auto 18px;border-radius:50%;
+  border:2px solid rgba(128,128,128,.25);border-top-color:var(--accent);
+  animation:r .8s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="spin" id="spin"></div>
+  <h1 id="t">Abriendo…</h1>
+  <p id="m">Descifrando el plano de mesas.</p>
+</div>
+<script>
+(function(){
+  var spin = document.getElementById('spin');
+  var t = document.getElementById('t');
+  var m = document.getElementById('m');
+
+  function fail(title, msg){
+    spin.className = 'hide';
+    t.textContent = title;
+    m.textContent = msg;
+  }
+
+  function b64urlToBytes(s){
+    s = s.replace(/-/g,'+').replace(/_/g,'/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  var hash = location.hash.replace(/^#/, '');
+  var key = null;
+  hash.split('&').forEach(function(p){
+    var kv = p.split('=');
+    if (kv[0] === 'k') key = decodeURIComponent(kv.slice(1).join('='));
+  });
+
+  if (!key){
+    fail('Enlace incompleto', 'Abre el enlace completo que te compartieron: debe terminar en #k=…');
+    return;
+  }
+  if (!window.crypto || !crypto.subtle){
+    fail('Navegador no compatible', 'Esta página necesita una conexión segura (https) y un navegador moderno.');
+    return;
+  }
+
+  var rawKey;
+  try {
+    rawKey = b64urlToBytes(key);
+    if (rawKey.length !== 32) throw new Error('bad length');
+  } catch(e){
+    fail('Enlace inválido', 'La clave del enlace no tiene el formato correcto.');
+    return;
+  }
+
+  fetch('payload.enc', {cache: 'no-cache'})
+    .then(function(r){
+      if (!r.ok) throw new Error('fetch ' + r.status);
+      return r.arrayBuffer();
+    })
+    .then(function(buf){
+      var all = new Uint8Array(buf);
+      var iv = all.slice(0, 12);
+      var data = all.slice(12);
+      return crypto.subtle.importKey('raw', rawKey, {name:'AES-GCM'}, false, ['decrypt'])
+        .then(function(ck){
+          return crypto.subtle.decrypt({name:'AES-GCM', iv:iv, tagLength:128}, ck, data);
+        });
+    })
+    .then(function(plain){
+      var html = new TextDecoder('utf-8').decode(plain);
+      document.open();
+      document.write(html);
+      document.close();
+    })
+    .catch(function(err){
+      if (err && (err.name === 'OperationError' || String(err).indexOf('operation-specific') >= 0)){
+        fail('Enlace inválido', 'La clave del enlace no es correcta. Pide que te reenvíen el enlace completo.');
+      } else {
+        fail('No se pudo cargar', 'Revisa tu conexión y vuelve a intentarlo.');
+      }
+    });
+})();
+</script>
+</body>
+</html>
